@@ -154,6 +154,17 @@ def test_soft_dtw_multivariate():
     )
 
 
+def test_soft_dtw_diagonal_threshold_and_simd_tail():
+    assert mts_metrics._soft_dtw_scratch(255, 257, 0.8).shape == (2, 258)
+    assert mts_metrics._soft_dtw_scratch(256, 256, 0.8).shape == (774,)
+    rng = np.random.default_rng(49)
+    first = rng.normal(size=(300, 5))
+    second = rng.normal(size=(221, 5))
+    assert mts.soft_dtw(first, second, gamma=0.8) == pytest.approx(
+        ts_metrics.soft_dtw(first, second, gamma=0.8), abs=5e-9
+    )
+
+
 def test_cdist_soft_dtw_and_normalized():
     rng = np.random.default_rng(11)
     first = rng.normal(size=(7, 15, 2))

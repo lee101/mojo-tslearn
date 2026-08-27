@@ -10,6 +10,7 @@ comptime W = simd_width_of[DType.float64]()
 comptime Ptr = UnsafePointer[Float64, AnyOrigin[mut=True]]
 comptime IPtr = UnsafePointer[Int64, AnyOrigin[mut=True]]
 comptime INF = 1.7976931348623157e308
+comptime SOFT_DTW_DIAGONAL_CELLS = 65536
 
 
 @always_inline
@@ -135,12 +136,28 @@ def softmin3(
     )
 
 
-def soft_dtw_fill(
+@always_inline
+def softmin3_vector(
+    a: SIMD[DType.float64, W],
+    b: SIMD[DType.float64, W],
+    c: SIMD[DType.float64, W],
+    gamma: Float64,
+    inv_gamma: Float64,
+) -> SIMD[DType.float64, W]:
+    var pivot = min(min(a, b), c)
+    var exp_a = exp((pivot - a) * inv_gamma)
+    var exp_b = exp((pivot - b) * inv_gamma)
+    var exp_c = exp((pivot - c) * inv_gamma)
+    var total = pivot.eq(a).select(
+        (1.0 + exp_b) + exp_c,
+        pivot.eq(b).select((exp_a + 1.0) + exp_c, (exp_a + exp_b) + 1.0),
+    )
+    return pivot - gamma * log(total)
+
+
+def soft_dtw_fill_rows(
     s1: Ptr, s2: Ptr, n: Int, m: Int, d: Int, gamma: Float64, acc: Ptr
 ) -> Float64:
-    if gamma == 0.0:
-        var dist = dtw_fill(s1, s2, n, m, d, acc, False, acc)
-        return dist * dist
     var stride = m + 1
     for j in range(stride):
         acc[j] = INF
@@ -162,6 +179,76 @@ def soft_dtw_fill(
                 )
             )
     return acc[(n % 2) * stride + m]
+
+
+def soft_dtw_fill_diagonals(
+    s1: Ptr, s2: Ptr, n: Int, m: Int, d: Int, gamma: Float64, acc: Ptr
+) -> Float64:
+    var stride = min(n, m) + 2
+    for idx in range(3 * stride):
+        acc[idx] = INF
+    var first = sqeuclidean(s1, s2, d)
+    acc[1] = first
+    if n == 1 and m == 1:
+        return first
+    var inv_gamma = 1.0 / gamma
+    for diagonal in range(1, n + m - 1):
+        var previous = acc + ((diagonal - 1) % 3) * stride
+        var previous2 = acc + ((diagonal + 1) % 3) * stride
+        var current = acc + (diagonal % 3) * stride
+        var start = max(0, diagonal - (m - 1))
+        var end = min(n - 1, diagonal)
+        var length = end - start + 1
+        var previous_start = max(0, diagonal - m)
+        var previous2_start = max(0, diagonal - m - 1)
+        current[0] = INF
+        current[length + 1] = INF
+        var t = 0
+        while t + W <= length:
+            var costs = SIMD[DType.float64, W](0.0)
+            @parameter
+            for lane in range(W):
+                var i = start + t + lane
+                var j = diagonal - i
+                costs[lane] = sqeuclidean(s1 + i * d, s2 + j * d, d)
+            var up = previous.load[width=W](start + t - previous_start)
+            var left = previous.load[width=W](
+                start + t - previous_start + 1
+            )
+            var diag = previous2.load[width=W](
+                start + t - previous2_start
+            )
+            current.store(
+                t + 1,
+                costs + softmin3_vector(up, left, diag, gamma, inv_gamma),
+            )
+            t += W
+        while t < length:
+            var i = start + t
+            var j = diagonal - i
+            current[t + 1] = (
+                sqeuclidean(s1 + i * d, s2 + j * d, d)
+                + softmin3(
+                    previous[start + t - previous_start],
+                    previous[start + t - previous_start + 1],
+                    previous2[start + t - previous2_start],
+                    gamma,
+                    inv_gamma,
+                )
+            )
+            t += 1
+    return acc[((n + m - 2) % 3) * stride + 1]
+
+
+def soft_dtw_fill(
+    s1: Ptr, s2: Ptr, n: Int, m: Int, d: Int, gamma: Float64, acc: Ptr
+) -> Float64:
+    if gamma == 0.0:
+        var dist = dtw_fill(s1, s2, n, m, d, acc, False, acc)
+        return dist * dist
+    if n * m >= SOFT_DTW_DIAGONAL_CELLS:
+        return soft_dtw_fill_diagonals(s1, s2, n, m, d, gamma, acc)
+    return soft_dtw_fill_rows(s1, s2, n, m, d, gamma, acc)
 
 
 def soft_dtw_gpu_kernel(

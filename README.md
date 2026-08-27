@@ -79,7 +79,7 @@ That route requires a compatible `mojo` executable on `PATH`.
 
 ## Correctness
 
-The test suite contains 37 numerical and behavioural parity tests against
+The test suite contains 38 numerical and behavioural parity tests against
 tslearn 0.9.0. It compares exact alignment paths and tie-breaking, random
 multivariate distances, both global constraints, pairwise and normalized
 soft-DTW, weighted and constrained DBA, estimator attributes, cluster
@@ -94,23 +94,24 @@ barycenter-iteration setting.
 
 Measured on an Intel Xeon E5-2697 v4 at 2.30 GHz (`Linux x86_64`) with Python
 3.13.14, NumPy 2.4.6, tslearn 0.9.0, and the pinned Mojo
-`1.0.0b3.dev2026072406`. These are best-of-three warm timings from
+`1.1.0.dev2026081105`. These are best-of-three warm timings from
 `pixi run bench`; the Pixi task takes a machine-wide lock.
 
 | benchmark | mojo-tslearn | tslearn | result |
 | --- | ---: | ---: | ---: |
-| DTW (2,000 x 3 against 2,000 x 3) | 18.94 ms | 41.41 ms | 2.19x faster |
-| soft-DTW gamma=1 (1,200 x 2) | 130.47 ms | 117.18 ms | 1.11x slower |
-| cdist_dtw (48 x 48, length 80 x 2) | 17.66 ms | 77.71 ms | 4.40x faster |
-| cdist_soft_dtw (36 x 36, length 64) | 437.62 ms | 551.27 ms | 1.26x faster |
-| cdist_soft_dtw GPU (36 x 36, length 64) | 46.62 ms | 586.38 ms | 12.58x faster |
-| DBA (24 series, length 80, 5 epochs) | 5.23 ms | 15.29 ms | 2.92x faster |
-| TimeSeriesKMeans DTW (30 x 48, k=2) | 8.66 ms | 72.42 ms | 8.37x faster |
+| DTW (2,000 x 3 against 2,000 x 3) | 18.77 ms | 28.85 ms | 1.54x faster |
+| soft-DTW gamma=1 (1,200 x 2) | 30.67 ms | 95.79 ms | 3.12x faster |
+| cdist_dtw (48 x 48, length 80 x 2) | 15.15 ms | 76.75 ms | 5.07x faster |
+| cdist_soft_dtw (36 x 36, length 64) | 422.44 ms | 630.04 ms | 1.49x faster |
+| cdist_soft_dtw GPU (36 x 36, length 64) | 63.90 ms | 543.01 ms | 8.50x faster |
+| DBA (24 series, length 80, 5 epochs) | 5.42 ms | 18.12 ms | 3.34x faster |
+| TimeSeriesKMeans DTW (30 x 48, k=2) | 7.58 ms | 60.61 ms | 7.99x faster |
 
-Pairwise DTW benefits from symmetry and thresholded row parallelism. Soft-DTW
-keeps only two DP rows, skips one exponential per cell, and reuses the
-reciprocal of `gamma`. The table reports the CPU soft-DTW regression as
-measured; no result is extrapolated from another run.
+Pairwise DTW benefits from symmetry and thresholded row parallelism. Large
+CPU soft-DTW problems traverse independent cells on each anti-diagonal in
+native-width SIMD batches and retain only three diagonals. Below 65,536 cells,
+the lower-overhead two-row recurrence remains in use. Both paths reuse the
+reciprocal of `gamma`; no result is extrapolated from another run.
 
 Pairwise soft-DTW also has an optional `device="gpu"` path because its
 independent matrices and transcendental-heavy cells have enough arithmetic
@@ -135,11 +136,12 @@ sizes and dtype.
 
 Time series use C-contiguous row-major `float64` storage:
 `(n_series, n_timestamps, n_features)`. A scalar DTW call allocates one
-`(n + 1, m + 1)` accumulated-cost matrix. Soft-DTW retains two rows, and
-parallel pairwise DTW gives each active row an independent scratch matrix.
-Local squared Euclidean distances use the host `float64` SIMD width with a
-scalar remainder. DBA backtracks the accumulated matrix and updates weighted
-alignment sums in the same native call.
+`(n + 1, m + 1)` accumulated-cost matrix. Soft-DTW retains either two rows or
+three anti-diagonals, and parallel pairwise DTW gives each active row an
+independent scratch matrix. Local squared Euclidean distances and large
+soft-DTW wavefronts use the host `float64` SIMD width with scalar remainders.
+DBA backtracks the accumulated matrix and updates weighted alignment sums in
+the same native call.
 
 ## License
 

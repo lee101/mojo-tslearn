@@ -23,6 +23,7 @@ def _scratch(n: int, m: int) -> np.ndarray:
 
 
 _PARALLEL_DTW_CELLS = 1_000_000
+_SOFT_DTW_DIAGONAL_CELLS = 65_536
 _GPU_MIN_FREE_MIB = 4_000
 _GPU_MAX_BYTES = 2 * 1024**3
 
@@ -33,6 +34,14 @@ def _parallel_cdist_dtw(nx: int, ny: int, sx: int, sy: int, n_jobs) -> bool:
         and nx >= 4
         and nx * ny * sx * sy >= _PARALLEL_DTW_CELLS
     )
+
+
+def _soft_dtw_scratch(n: int, m: int, gamma: float) -> np.ndarray:
+    if gamma == 0.0:
+        return _scratch(n, m)
+    if n * m >= _SOFT_DTW_DIAGONAL_CELLS:
+        return np.empty(3 * (min(n, m) + 2), dtype=np.float64)
+    return np.empty((2, m + 1), dtype=np.float64)
 
 
 def _gpu_memory_available(required_bytes: int) -> bool:
@@ -222,11 +231,7 @@ def soft_dtw(
     gamma = float(gamma)
     if gamma < 0:
         raise ValueError("gamma must be non-negative")
-    acc = (
-        _scratch(len(first), len(second))
-        if gamma == 0.0
-        else np.empty((2, len(second) + 1), dtype=np.float64)
-    )
+    acc = _soft_dtw_scratch(len(first), len(second), gamma)
     return float(
         lib().mts_soft_dtw(
             addr(first),
@@ -296,11 +301,7 @@ def cdist_soft_dtw(
                 RuntimeWarning,
                 stacklevel=2,
             )
-        acc = (
-            _scratch(x.shape[1], y.shape[1])
-            if gamma == 0.0
-            else np.empty((2, y.shape[1] + 1), dtype=np.float64)
-        )
+        acc = _soft_dtw_scratch(x.shape[1], y.shape[1], gamma)
         lib().mts_cdist_soft_dtw(
             addr(x),
             addr(y),
