@@ -1,8 +1,8 @@
 """Time-series distance and alignment kernels exposed through a C ABI."""
 
-from std.algorithm import sync_parallelize
+from max.algorithm import sync_parallelize
 from std.gpu import block_dim, block_idx, thread_idx
-from std.gpu.host import DeviceContext
+from max.gpu.host import DeviceContext
 from std.math import exp, log, sqrt
 from std.sys.info import simd_width_of
 
@@ -167,15 +167,20 @@ def soft_dtw_fill(
 def soft_dtw_gpu_kernel(
     x: Ptr,
     y: Ptr,
-    nx: Int,
-    ny: Int,
-    sx: Int,
-    sy: Int,
-    d: Int,
+    nx_arg: Int64,
+    ny_arg: Int64,
+    sx_arg: Int64,
+    sy_arg: Int64,
+    d_arg: Int64,
     gamma: Float64,
     result: Ptr,
     scratch: Ptr,
 ):
+    var nx = Int(nx_arg)
+    var ny = Int(ny_arg)
+    var sx = Int(sx_arg)
+    var sy = Int(sy_arg)
+    var d = Int(d_arg)
     var pair = block_idx.x * block_dim.x + thread_idx.x
     if pair >= nx * ny:
         return
@@ -462,11 +467,11 @@ def mts_cdist_soft_dtw_gpu(
         ctx.enqueue_function[soft_dtw_gpu_kernel](
             x_device,
             y_device,
-            nx,
-            ny,
-            sx,
-            sy,
-            d,
+            Int64(nx),
+            Int64(ny),
+            Int64(sx),
+            Int64(sy),
+            Int64(d),
             gamma,
             result_device,
             scratch_device,
