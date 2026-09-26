@@ -1,7 +1,7 @@
 """Time-series distance and alignment kernels exposed through a C ABI."""
 
 from max.algorithm import sync_parallelize
-from std.gpu import block_dim, block_idx, thread_idx
+from max.gpu import block_dim, block_idx, thread_idx
 from max.gpu.host import DeviceContext
 from std.math import exp, log, sqrt
 from std.sys.info import simd_width_of
@@ -206,8 +206,7 @@ def soft_dtw_fill_diagonals(
         var t = 0
         while t + W <= length:
             var costs = SIMD[DType.float64, W](0.0)
-            @parameter
-            for lane in range(W):
+            comptime for lane in range(W):
                 var i = start + t + lane
                 var j = diagonal - i
                 costs[lane] = sqeuclidean(s1 + i * d, s2 + j * d, d)
@@ -465,8 +464,7 @@ def mts_cdist_dtw(
     var symmetric = x_addr == y_addr and nx == ny and sx == sy
     var acc_stride = (sx + 1) * (sy + 1)
 
-    @parameter
-    def compute_row(i: Int):
+    def compute_row(i: Int) {imm}:
         var row_acc = acc
         if parallel != 0:
             row_acc += i * acc_stride
@@ -490,7 +488,7 @@ def mts_cdist_dtw(
                 result[j * ny + i] = distance
 
     if parallel != 0:
-        sync_parallelize[compute_row](nx)
+        sync_parallelize(compute_row, nx)
     else:
         for i in range(nx):
             compute_row(i)
