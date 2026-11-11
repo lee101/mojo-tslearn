@@ -30,7 +30,7 @@ def sqeuclidean(a: Ptr, b: Ptr, d: Int) -> Float64:
     var lanes = SIMD[DType.float64, W](0.0)
     var k = 0
     while k + W <= d:
-        var delta = a.load[width=W](k) - b.load[width=W](k)
+        var delta = a.unsafe_load[width=W](k) - b.unsafe_load[width=W](k)
         lanes += delta * delta
         k += W
     var total = lanes.reduce_add()
@@ -210,11 +210,11 @@ def soft_dtw_fill_diagonals(
                 var i = start + t + lane
                 var j = diagonal - i
                 costs[lane] = sqeuclidean(s1 + i * d, s2 + j * d, d)
-            var up = previous.load[width=W](start + t - previous_start)
-            var left = previous.load[width=W](
+            var up = previous.unsafe_load[width=W](start + t - previous_start)
+            var left = previous.unsafe_load[width=W](
                 start + t - previous_start + 1
             )
-            var diag = previous2.load[width=W](
+            var diag = previous2.unsafe_load[width=W](
                 start + t - previous2_start
             )
             current.store(
